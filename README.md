@@ -145,9 +145,9 @@ docker run --rm map-to-poster --list-themes
 docker run --rm \
     -v "$PWD/posters:/app/posters:Z" \
     map-to-poster \
-    --city "Mainz" \
-    --country "Deutschland" \
-    --distance 6000 \
+    --city "Paris" \
+    --country "France" \
+    --distance 8000 \
     --theme pastel_dream
 ```
 
