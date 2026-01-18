@@ -34,17 +34,25 @@ python create_map_poster.py --city <city> --country <country> [options]
 
 ### Options
 
-| Option          | Short | Description               | Default       |
-| --------------- | ----- | ------------------------- | ------------- |
-| `--city`        | `-c`  | City name                 | required      |
-| `--country`     | `-C`  | Country name              | required      |
-| `--theme`       | `-t`  | Theme name                | feature_based |
-| `--distance`    | `-d`  | Map radius in meters      | 29000         |
-| `--list-themes` |       | List all available themes |               |
+| Option          | Short | Description                     | Default       |
+| --------------- | ----- | ------------------------------- | ------------- |
+| `--city`        | `-c`  | City name                       | required      |
+| `--country`     | `-C`  | Country name                    | required      |
+| `--theme`       | `-t`  | Theme name                      | feature_based |
+| `--distance`    | `-d`  | Map radius in meters            | 29000         |
+| `--all-themes`  |       | Generate posters for all themes |               |
+| `--list-themes` |       | List all available themes       |               |
+| `--clear-cache` |       | Clear all cached map data       |               |
 
 ### Examples
 
 ```bash
+# Single theme generation
+python create_map_poster.py -c "New York" -C "USA" -t noir -d 12000
+
+# Generate all themes for a city (uses cache for speed)
+python create_map_poster.py -c "Paris" -C "France" --all-themes
+
 # Iconic grid patterns
 python create_map_poster.py -c "New York" -C "USA" -t noir -d 12000           # Manhattan grid
 python create_map_poster.py -c "Barcelona" -C "Spain" -t warm_beige -d 8000   # Eixample district
@@ -74,7 +82,44 @@ python create_map_poster.py -c "Budapest" -C "Hungary" -t copper_patina -d 8000 
 
 # List available themes
 python create_map_poster.py --list-themes
+
+# Clear all cache
+python create_map_poster.py --clear-cache
 ```
+
+## Batch Generation (--all-themes)
+
+Generate posters in all available themes for a single city in one command:
+
+```bash
+python create_map_poster.py --city "Tokyo" --country "Japan" --all-themes
+python create_map_poster.py --city "London" --country "UK" --all-themes --distance 12000
+```
+
+This generates 17 posters (one for each theme) and outputs them to `posters/`:
+```
+posters/
+├── tokyo_feature_based_20260118_120000.png
+├── tokyo_gradient_roads_20260118_120030.png
+├── tokyo_contrast_zones_20260118_120100.png
+├── tokyo_noir_20260118_120130.png
+├── ...
+└── tokyo_monochrome_blue_20260118_121200.png
+```
+
+### Performance with Caching
+
+Batch generation is **extremely efficient** thanks to the caching system:
+
+- **First run**: ~30 seconds (downloads street network, water, parks data)
+- **Subsequent themes**: ~3-5 seconds each (reuses cached data, only changes colors)
+- **Total for all 17 themes**: ~2-3 minutes
+
+Compare this to generating each theme individually without cache:
+- **Without cache**: ~30 seconds × 17 = ~8-9 minutes
+- **With cache**: ~30 + (5 × 16) = ~2-3 minutes
+
+**💡 Pro tip**: The cache is keyed by `city_country_distance`, so using `--all-themes` always fetches data once and reuses it for all themes. Perfectly optimized!
 
 ### Distance Guide
 
@@ -132,12 +177,17 @@ When you request a map for a city/country/distance combination, the script:
 Cache files are stored in `cache/` directory as pickled Python objects:
 ```
 cache/
-├── {hash}_graph.pkl       # Street network data
-├── {hash}_water.pkl       # Water features
-└── {hash}_parks.pkl       # Parks/green spaces
+├── paris_france_8000_graph.pkl       # Street network data
+├── paris_france_8000_water.pkl       # Water features
+├── paris_france_8000_parks.pkl       # Parks/green spaces
+├── tokyo_japan_15000_graph.pkl
+├── tokyo_japan_15000_water.pkl
+└── tokyo_japan_15000_parks.pkl
 ```
 
-The hash is generated from: `city_country_distance` (e.g., "paris_france_8000")
+Filename format: `{city}_{country}_{distance}_{dataType}.pkl`
+
+This makes it easy to see exactly what's cached and manage files manually if needed.
 
 ### Cache Benefits
 
@@ -155,6 +205,10 @@ rm cache/*paris*  # Clears all Paris cache variants
 
 **Clear all cache:**
 ```bash
+# Using the --clear-cache command
+python create_map_poster.py --clear-cache
+
+# Or manually
 rm -rf cache/
 # Next run will fetch fresh data from APIs
 ```

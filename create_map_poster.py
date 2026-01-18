@@ -11,32 +11,26 @@ import os
 from datetime import datetime
 import argparse
 import pickle
-import hashlib
 
 THEMES_DIR = "themes"
 FONTS_DIR = "fonts"
 POSTERS_DIR = "posters"
 CACHE_DIR = ".cache"
-
-def get_cache_key(city, country, distance):
-    """
-    Generate a cache key based on city, country, and distance.
-    Returns a filename-safe hash.
-    """
-    key_string = f"{city.lower()}_{country.lower()}_{distance}"
-    key_hash = hashlib.md5(key_string.encode()).hexdigest()
-    return key_hash
+ox.settings.cache_folder=CACHE_DIR
 
 def get_cache_path(city, country, distance, data_type):
     """
     Get the full cache file path for a specific data type.
     data_type can be: 'graph', 'water', or 'parks'
+    Filename format: {city}_{country}_{distance}_{dataType}.pkl
     """
     if not os.path.exists(CACHE_DIR):
         os.makedirs(CACHE_DIR)
     
-    cache_key = get_cache_key(city, country, distance)
-    filename = f"{cache_key}_{data_type}.pkl"
+    # Create readable filename
+    city_slug = city.lower().replace(' ', '_')
+    country_slug = country.lower().replace(' ', '_')
+    filename = f"{city_slug}_{country_slug}_{distance}_{data_type}.pkl"
     return os.path.join(CACHE_DIR, filename)
 
 def load_from_cache(city, country, distance, data_type):
@@ -493,6 +487,45 @@ def clear_cache():
     except Exception as e:
         print(f"✗ Error clearing cache: {e}")
 
+def generate_single_poster(theme_name, city, country, coords, distance):
+    """Generate a single poster for the given theme and city."""
+    global THEME
+    THEME = load_theme(theme_name)
+    output_file = generate_output_filename(city, theme_name)
+    create_poster(city, country, coords, distance, output_file)
+
+def generate_all_themes(city, country, distance):
+    """Generate posters for all available themes for a given city."""
+    available_themes = get_available_themes()
+    
+    if not available_themes:
+        print("✗ No themes found. Please check your themes/ directory.")
+        return
+    
+    print(f"\n✓ Generating posters for {len(available_themes)} themes...\n")
+    successful = 0
+    failed = 0
+    failed_themes = []
+    
+    # Get coordinates once
+    coords = get_coordinates(city, country)
+    
+    for theme_name in available_themes:
+        try:
+            generate_single_poster(theme_name, city, country, coords, distance)
+            successful += 1
+        except Exception as e:
+            print(f"✗ Failed to generate {theme_name}: {e}")
+            failed += 1
+            failed_themes.append(theme_name)
+    
+    print("\n" + "=" * 50)
+    print("✓ Batch generation complete!")
+    print(f"  Generated: {successful}/{len(available_themes)} posters")
+    if failed > 0:
+        print(f"  Failed: {failed} ({', '.join(failed_themes)})")
+    print("=" * 50)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate beautiful map posters for any city",
@@ -511,6 +544,7 @@ Examples:
     parser.add_argument('--theme', '-t', type=str, default='feature_based', help='Theme name (default: feature_based)')
     parser.add_argument('--distance', '-d', type=int, default=29000, help='Map radius in meters (default: 29000)')
     parser.add_argument('--list-themes', action='store_true', help='List all available themes')
+    parser.add_argument('--all-themes', action='store_true', help='Generate posters for all available themes')
     parser.add_argument('--clear-cache', action='store_true', help='Clear all cached map data')
     
     args = parser.parse_args()
@@ -536,9 +570,11 @@ Examples:
         print_examples()
         os.sys.exit(1)
     
-    # Validate theme exists
+    # Get available themes
     available_themes = get_available_themes()
-    if args.theme not in available_themes:
+    
+    # Validate theme exists (unless --all-themes is specified)
+    if not args.all_themes and args.theme not in available_themes:
         print(f"Error: Theme '{args.theme}' not found.")
         print(f"Available themes: {', '.join(available_themes)}")
         os.sys.exit(1)
@@ -547,19 +583,17 @@ Examples:
     print("City Map Poster Generator")
     print("=" * 50)
     
-    # Load theme
-    THEME = load_theme(args.theme)
-    
-    # Get coordinates and generate poster
     try:
-        coords = get_coordinates(args.city, args.country)
-        output_file = generate_output_filename(args.city, args.theme)
-        create_poster(args.city, args.country, coords, args.distance, output_file)
-        
-        print("\n" + "=" * 50)
-        print("✓ Poster generation complete!")
-        print("=" * 50)
-        
+        if args.all_themes:
+            generate_all_themes(args.city, args.country, args.distance)
+        else:
+            # Generate poster for single theme
+            coords = get_coordinates(args.city, args.country)
+            generate_single_poster(args.theme, args.city, args.country, coords, args.distance)
+            
+            print("\n" + "=" * 50)
+            print("✓ Poster generation complete!")
+            print("=" * 50)
     except Exception as e:
         print(f"\n✗ Error: {e}")
         import traceback
