@@ -10,10 +10,62 @@ import json
 import os
 from datetime import datetime
 import argparse
+import pickle
+import hashlib
 
 THEMES_DIR = "themes"
 FONTS_DIR = "fonts"
 POSTERS_DIR = "posters"
+CACHE_DIR = ".cache"
+
+def get_cache_key(city, country, distance):
+    """
+    Generate a cache key based on city, country, and distance.
+    Returns a filename-safe hash.
+    """
+    key_string = f"{city.lower()}_{country.lower()}_{distance}"
+    key_hash = hashlib.md5(key_string.encode()).hexdigest()
+    return key_hash
+
+def get_cache_path(city, country, distance, data_type):
+    """
+    Get the full cache file path for a specific data type.
+    data_type can be: 'graph', 'water', or 'parks'
+    """
+    if not os.path.exists(CACHE_DIR):
+        os.makedirs(CACHE_DIR)
+    
+    cache_key = get_cache_key(city, country, distance)
+    filename = f"{cache_key}_{data_type}.pkl"
+    return os.path.join(CACHE_DIR, filename)
+
+def load_from_cache(city, country, distance, data_type):
+    """
+    Load cached data if it exists.
+    Returns the cached object or None if not found.
+    """
+    cache_path = get_cache_path(city, country, distance, data_type)
+    
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'rb') as f:
+                return pickle.load(f)
+        except Exception as e:
+            print(f"⚠ Error loading cache for {data_type}: {e}")
+            return None
+    return None
+
+def save_to_cache(city, country, distance, data_type, data):
+    """
+    Save data to cache.
+    """
+    cache_path = get_cache_path(city, country, distance, data_type)
+    
+    try:
+        with open(cache_path, 'wb') as f:
+            pickle.dump(data, f)
+    except Exception as e:
+        print(f"⚠ Error saving cache for {data_type}: {e}")
 
 def load_fonts():
     """
@@ -218,30 +270,48 @@ def create_poster(city, country, point, dist, output_file):
     
     # Progress bar for data fetching
     with tqdm(total=3, desc="Fetching map data", unit="step", bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
-        # 1. Fetch Street Network
-        pbar.set_description("Downloading street network")
-        G = ox.graph_from_point(point, dist=dist, dist_type='bbox', network_type='all')
+        # 1. Fetch or load Street Network
+        pbar.set_description("Loading street network")
+        G = load_from_cache(city, country, dist, 'graph')
+        if G is None:
+            pbar.set_description("Downloading street network")
+            G = ox.graph_from_point(point, dist=dist, dist_type='bbox', network_type='all')
+            save_to_cache(city, country, dist, 'graph', G)
+        else:
+            print("✓ Loaded street network from cache")
         pbar.update(1)
         time.sleep(0.5)  # Rate limit between requests
         
-        # 2. Fetch Water Features
-        pbar.set_description("Downloading water features")
-        try:
-            water = ox.features_from_point(point, tags={'natural': 'water', 'waterway': 'riverbank'}, dist=dist)
-        except:
-            water = None
+        # 2. Fetch or load Water Features
+        pbar.set_description("Loading water features")
+        water = load_from_cache(city, country, dist, 'water')
+        if water is None:
+            pbar.set_description("Downloading water features")
+            try:
+                water = ox.features_from_point(point, tags={'natural': 'water', 'waterway': 'riverbank'}, dist=dist)
+                save_to_cache(city, country, dist, 'water', water)
+            except:
+                water = None
+        else:
+            print("✓ Loaded water features from cache")
         pbar.update(1)
         time.sleep(0.3)
         
-        # 3. Fetch Parks
-        pbar.set_description("Downloading parks/green spaces")
-        try:
-            parks = ox.features_from_point(point, tags={'leisure': 'park', 'landuse': 'grass'}, dist=dist)
-        except:
-            parks = None
+        # 3. Fetch or load Parks
+        pbar.set_description("Loading parks/green spaces")
+        parks = load_from_cache(city, country, dist, 'parks')
+        if parks is None:
+            pbar.set_description("Downloading parks/green spaces")
+            try:
+                parks = ox.features_from_point(point, tags={'leisure': 'park', 'landuse': 'grass'}, dist=dist)
+                save_to_cache(city, country, dist, 'parks', parks)
+            except:
+                parks = None
+        else:
+            print("✓ Loaded parks from cache")
         pbar.update(1)
     
-    print("✓ All data downloaded successfully!")
+    print("✓ All data ready!")
     
     # 2. Setup Plot
     print("Rendering map...")
@@ -403,6 +473,26 @@ def list_themes():
             print(f"    {description}")
         print()
 
+def clear_cache():
+    """Clear all cached map data."""
+    if not os.path.exists(CACHE_DIR):
+        print("✓ Cache directory does not exist. Nothing to clear.")
+        return
+    
+    cache_files = [f for f in os.listdir(CACHE_DIR) if f.endswith('.pkl')]
+    
+    if not cache_files:
+        print("✓ No cache files found.")
+        return
+    
+    try:
+        for file in cache_files:
+            file_path = os.path.join(CACHE_DIR, file)
+            os.remove(file_path)
+        print(f"✓ Cleared {len(cache_files)} cache file(s).")
+    except Exception as e:
+        print(f"✗ Error clearing cache: {e}")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate beautiful map posters for any city",
@@ -421,6 +511,7 @@ Examples:
     parser.add_argument('--theme', '-t', type=str, default='feature_based', help='Theme name (default: feature_based)')
     parser.add_argument('--distance', '-d', type=int, default=29000, help='Map radius in meters (default: 29000)')
     parser.add_argument('--list-themes', action='store_true', help='List all available themes')
+    parser.add_argument('--clear-cache', action='store_true', help='Clear all cached map data')
     
     args = parser.parse_args()
     
@@ -432,6 +523,11 @@ Examples:
     # List themes if requested
     if args.list_themes:
         list_themes()
+        os.sys.exit(0)
+    
+    # Clear cache if requested
+    if args.clear_cache:
+        clear_cache()
         os.sys.exit(0)
     
     # Validate required arguments
